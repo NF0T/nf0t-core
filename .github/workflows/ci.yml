@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+
+  # Debian Trixie container: the same package versions as the maintainer's
+  # Linux environment.
+  build-linux:
+    name: Linux (Debian Trixie)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+
+    steps:
+      # The base image has neither, and actions/checkout needs both for HTTPS.
+      - name: Install git
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git
+
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install build dependencies
+        run: |
+          apt-get install -y --no-install-recommends \
+            g++ cmake ninja-build \
+            qt6-base-dev \
+            libqt6sql6-sqlite
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
+
+  # MSYS2 UCRT64: the toolchain NF0T Logger's Windows builds use.
+  build-windows:
+    name: Windows (MSYS2 UCRT64)
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          pacboy: >-
+            gcc:p
+            cmake:p
+            ninja:p
+            qt6-base:p
+
+      - name: Configure
+        shell: msys2 {0}
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build --parallel
+
+      - name: Test
+        shell: msys2 {0}
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
+
+  build-macos:
+    name: macOS (Apple Silicon)
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install dependencies
+        run: brew install cmake ninja qt
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$(brew --prefix qt)"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
